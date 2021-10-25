@@ -1,0 +1,262 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+setwd('/Users/seaceved/GenomicsFinalProject')
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+# Import Data
+SRR5356290 <- read.delim("SRR5356290_GRCh38.tsv")
+SRR5356291 <- read.delim("SRR5356291_GRCh38.tsv")
+SRR5356292 <- read.delim("SRR5356292_GRCh38.tsv")
+SRR5356293 <- read.delim("SRR5356293_GRCh38.tsv")
+SRR5356294 <- read.delim("SRR5356294_GRCh38.tsv")
+SRR5356295 <- read.delim("SRR5356295_GRCh38.tsv")
+SRR5356296 <- read.delim("SRR5356296_GRCh38.tsv")
+SRR5356297 <- read.delim("SRR5356297_GRCh38.tsv")
+SRR5356298 <- read.delim("SRR5356298_GRCh38.tsv")
+SRR5356299 <- read.delim("SRR5356299_GRCh38.tsv")
+```
+
+```{r}
+cts <- data.frame(
+        WT_repA = round(SRR5356290$est_counts),
+        WT_repB = round(SRR5356291$est_counts),
+        WT_repC = round(SRR5356292$est_counts),
+        WT_repD = round(SRR5356293$est_counts),
+        WT_repE = round(SRR5356294$est_counts),
+        ZBTB48_KO_repA = round(SRR5356295$est_count),
+        ZBTB48_KO_repB = round(SRR5356296$est_count),
+        ZBTB48_KO_repC = round(SRR5356297$est_count),
+        ZBTB48_KO_repD = round(SRR5356298$est_count),
+        ZBTB48_KO_repE = round(SRR5356299$est_count)
+)
+```
+
+
+```{r}
+rownames(cts) <- SRR5356290$target_id
+```
+
+```{r}
+coldata <- data.frame(
+        treatment = c(rep("WT",5), rep("ZBTB48_KO",5))
+)
+```
+
+
+```{r}
+rownames(coldata) <- colnames(cts)
+```
+
+
+```{r}
+coldata
+```
+
+```{r}
+library("DESeq2")
+```
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = cts,
+                              colData = coldata,
+                              design = ~treatment)
+```
+
+```{r}
+dds <- DESeq(dds)
+res <- results(dds)
+```
+
+```{r}
+na.omit(resLFC)
+```
+```{r}
+library(apeglm)
+
+resultsNames(dds)
+
+resLFC <- lfcShrink(dds,
+              coef="treatment_ZBTB48_KO_vs_WT",
+              type="apeglm")
+
+plot(res$log2FoldChange, resLFC$log2FoldChange,
+     xlab="unshrunk LFC", ylab="shrunk LFC")
+
+plot(resLFC$baseMean, resLFC$log2FoldChange)
+```
+```{r}
+res[order(res$padj),]
+
+res[order(res$log2FoldChange),]
+
+plotMA(res, ylim=c(-2,2))
+
+plotMA(resLFC, ylim=c(-2,2))
+```
+
+```{r}
+# Heatmap
+
+library("tidyverse")
+
+dds
+ntd <- normTransform(dds)
+
+vsd <- vst(dds, blind=FALSE)
+rld <- rlog(dds, blind=FALSE)
+
+library("pheatmap")
+
+select <- order(rowMeans(counts(dds,normalized=TRUE)),
+                decreasing=TRUE)[0:25]
+df <- as.data.frame(colData(dds)[c("treatment")])
+pheatmap(assay(vsd)[select,],
+         cluster_rows=FALSE,
+         show_rownames=TRUE,
+         cluster_cols=FALSE,
+         annotation_col=df)
+
+png('gene_heatmap.png')
+
+dds$WT_repA
+```
+```{r}
+ntd <- normTransform(dds)
+select <- order(rowMeans(counts(dds, normalized=TRUE)), decreasing =TRUE)[0:25]
+df <- as.data.frame(colData(dds)[c("treatment")])
+pheatmap(assay(ntd)[select,], cluster_rows=FALSE, showrownames=TRUE, cluster_cols=FALSE,annotation_col=df)
+```
+
+```{r}
+assay(vsd)[select,]
+
+sampleDists <- dist(t(assay(vsd)))
+library("RColorBrewer")
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(vsd$treatment, sep="-")
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+ 
+```
+
+```{r}
+plotPCA(vsd, intgroup=c("treatment"))
+```
+```{r}
+plotCounts(dds, gene='ENST00000588118.5', intgroup="treatment")
+rownames(dds)
+assay(vsd)[select,]
+order(rowMeans(counts(dds,normalized=TRUE)),
+                decreasing=TRUE)[1:20]
+```
+```{r}
+library("genefilter")
+
+topVarGenes <- head(order(-rowVars(assay(vsd))),20)
+
+mat <- assay(vsd)[ topVarGenes, ]
+mat <- mat - rowMeans(mat)
+df <- as.data.frame(colData(vsd)[c("treatment")])
+pheatmap(mat, cluster_rows=FALSE,
+         show_rownames=TRUE,
+         cluster_cols=FALSE,
+         annotation_col=df)
+```
+
+```{r}
+sum(res$padj < 0.1, na.rm=TRUE)
+resSig <- subset(res, padj < 0.1)
+head(resSig[ order( resSig$log2FoldChange ), ])
+
+head(resSig[ order( -resSig$log2FoldChange ), ])
+
+topGene <- rownames(res)[which.min(res$padj)]
+plotCounts(dds, gene='', intgroup=c("treatment"))
+```
+
+```{r}
+subset(res, padj < 0.1)
+```
+```{r}
+de <- rownames(res[res$padj<0.05 & !is.na(res$padj), ])[1:25]
+de_mat <- assay(ntd)[de,]
+
+pheatmap(de_mat, cluster_rows=FALSE, showrownames=TRUE, cluster_cols=FALSE,annotation_col=df)
+```
+```{r}
+resSig <- res[res$padj<0.1 & !is.na(res$padj), ]
+de <- rownames(resSig[ order(resSig$log2FoldChange ), ])[1:20]
+de_mat <- assay(ntd)[de,]
+
+pheatmap(de_mat, cluster_rows=FALSE, showrownames=TRUE, cluster_cols=FALSE,annotation_col=df)
+```
+```{r}
+resSig <- res[res$padj<0.1 & !is.na(res$padj), ]
+de <- rownames(resSig[ order(-resSig$log2FoldChange ), ])[1:20]
+de_mat <- assay(ntd)[de,]
+png('gene_heatmap_KO.png')
+pheatmap(de_mat, cluster_rows=FALSE, showrownames=TRUE, cluster_cols=FALSE,annotation_col=df)
+```
+```{r}
+rownames(resSig[ order(-resSig$log2FoldChange ), ])[1:20]
+```
+
+```{r}
+resSig <- res[res$padj<0.1 & !is.na(res$padj), ]
+de <- rownames(resSig[ order(resSig$log2FoldChange ), ])[70:90]
+de_mat <- assay(ntd)[de,]
+#png('gene_heatmap_WT.png')
+pheatmap(de_mat, cluster_rows=TRUE, showrownames=TRUE, cluster_cols=FALSE,annotation_col=df)
+```
+
+```{r}
+resSig <- res[res$padj<0.1 & !is.na(res$padj), ]
+de <- rownames(resSig[ order((resSig$log2FoldChange < 0)), ])[1:20]
+de_mat <- assay(ntd)[de,]
+#png('gene_heatmap_WT.png')
+pheatmap(de_mat, cluster_rows=TRUE, showrownames=TRUE, cluster_cols=FALSE,annotation_col=df)
+
+res <- na.omit(res$padj)
+
+resSig < - res[order(-res$padj<0.1 & !is.na(res$padj)),]
+```
+
+```{r}
+library("pheatmap")
+mat = assay(vsd)[ head(order(res$padj),20), ] # select the top 30 genes with the lowest padj
+mat = mat - rowMeans(mat) # Subtract the row means from each value
+# Optional, but to make the plot nicer:
+df = as.data.frame(colData(vsd)[c("treatment")]) # Create a dataframe with a column of the conditions
+colnames(df) = "condition" # Rename the column header
+rownames(df) = colnames(mat) # add rownames
+# and plot the actual heatma
+#png('gene_hm_final.png')
+pheatmap(mat, annotation_col=df)
+
+
+rownames(order(res$padj))
+```
+
+```{r}
+test <- subset(res, padj < 0.1)
+head(test[order(test$padj),], 20)
+```
+
